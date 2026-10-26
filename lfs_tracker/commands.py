@@ -15,6 +15,11 @@ def option_commands(settings: Settings) -> list[str]:
     return [f"{command} {value}" for command, value in options if value != "keep"]
 
 
+def practice_commands() -> list[str]:
+    # 0 laps is practice; resets are always allowed there
+    return ["/laps=0", "/canreset yes", "/restart"]
+
+
 def qualify_commands(settings: Settings) -> list[str]:
     return [f"/qual {settings.qual_minutes}", *option_commands(settings), "/qualify"]
 

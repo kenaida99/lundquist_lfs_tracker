@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
-from lfs_tracker.commands import qualify_commands, start_race_commands
+from lfs_tracker.commands import practice_commands, qualify_commands, start_race_commands
 from lfs_tracker.events import EventManager
 from lfs_tracker.settings import Settings
 from lfs_tracker.tracker import Tracker
@@ -103,6 +103,10 @@ def create_app(
         except ConnectionError as error:
             raise HTTPException(503, str(error)) from error
         return {"sent": commands}
+
+    @app.post("/api/practice")
+    async def practice_now() -> dict:
+        return await send(practice_commands())
 
     @app.post("/api/qualify")
     async def qualify_now() -> dict:

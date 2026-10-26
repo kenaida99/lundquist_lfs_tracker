@@ -132,11 +132,19 @@ def test_qualify_and_start_race_buttons_send_the_commands(tmp_path):
     assert link.commands == [["/qual 20", "/qualify"], ["/laps=5", "/start random", "/restart"]]
 
 
+def test_practice_button_sends_laps_0_canreset_and_restart(tmp_path):
+    link = FakeLink()
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(tmp_path / "s.json"), link))
+    client.post("/api/settings", json={"can_reset": "no", "race_laps": 8})  # does not affect it
+    assert client.post("/api/practice").json() == {"sent": ["/laps=0", "/canreset yes", "/restart"]}
+    assert link.commands == [["/laps=0", "/canreset yes", "/restart"]]
+
+
 def test_buttons_report_when_not_connected(tmp_path):
     link = FakeLink()
     link.connected = False
     client = TestClient(create_app(Tracker(), EventManager(), Settings(tmp_path / "s.json"), link))
-    for url in ("/api/qualify", "/api/start-race"):
+    for url in ("/api/practice", "/api/qualify", "/api/start-race"):
         reply = client.post(url)
         assert reply.status_code == 503 and "not connected" in reply.json()["detail"]
 

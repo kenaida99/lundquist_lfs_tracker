@@ -27,10 +27,11 @@ Options: `--lfs-host`, `--lfs-port`, `--admin-password`, `--web-host`, `--web-po
 
 ## Race control
 
-The page has **QUALIFY NOW** and **START RACE NOW** buttons (each asks for confirmation). The
+The page has **SET PRACTICE MODE**, **QUALIFY NOW** and **START RACE NOW** buttons (each asks for confirmation). The
 values come from ⚙ Settings (qualifying minutes, race laps, grid order: fixed / reverse /
 random) and are sent as LFS commands:
 
+- SET PRACTICE MODE: `/laps=0`, `/canreset yes`, `/restart`
 - QUALIFY NOW: `/qual <minutes>`, the yes/no options below, `/qualify`
 - START RACE NOW: `/laps=<laps>`, `/start <fixed|reverse|random>`, the yes/no options, `/restart`
 
