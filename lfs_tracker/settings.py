@@ -15,6 +15,17 @@ DEFAULT_LFS_PORT = 29999
 GRID_ORDERS = ("fixed", "reverse", "random")
 # Host options that are sent with the buttons: "keep" leaves whatever LFS currently has.
 CHOICES = ("keep", "yes", "no")
+WELCOME_LINES = 10
+WELCOME_LINE_MAX = 80  # characters per line, colour codes included
+
+
+def clean_welcome_lines(lines: list[str]) -> list[str]:
+    """Exactly WELCOME_LINES single-line strings of at most WELCOME_LINE_MAX characters."""
+    cleaned = [
+        str(line).replace("\r", " ").replace("\n", " ")[:WELCOME_LINE_MAX]
+        for line in lines[:WELCOME_LINES]
+    ]
+    return cleaned + [""] * (WELCOME_LINES - len(cleaned))
 
 
 class Settings:
@@ -29,7 +40,13 @@ class Settings:
         self.vote = "keep"  # /vote: may everyone vote to restart, not only admins
         self.can_reset = "keep"  # /canreset
         self.mid_race = "keep"  # /midrace: may cars join after the race has started
+        # Shown to a driver who connects; LFS colour codes (^1 to ^9) allowed. All blank = off.
+        self.welcome_lines = [""] * WELCOME_LINES
         self._load()
+
+    @property
+    def welcome_enabled(self) -> bool:
+        return any(line.strip() for line in self.welcome_lines)
 
     def update(
         self,
@@ -43,6 +60,7 @@ class Settings:
         vote: str | None = None,
         can_reset: str | None = None,
         mid_race: str | None = None,
+        welcome_lines: list[str] | None = None,
     ) -> None:
         """Change the given settings (None = leave as is) and save."""
         if lfs_host is not None:
@@ -64,6 +82,8 @@ class Settings:
                 if value not in CHOICES:
                     raise ValueError(f"{name} must be one of {CHOICES}")
                 setattr(self, name, value)
+        if welcome_lines is not None:
+            self.welcome_lines = clean_welcome_lines(welcome_lines)
         self._save()
 
     def _load(self) -> None:
@@ -81,6 +101,8 @@ class Settings:
             for name in ("vote", "can_reset", "mid_race"):
                 if data.get(name) in CHOICES:
                     setattr(self, name, data[name])
+            if isinstance(data.get("welcome_lines"), list):
+                self.welcome_lines = clean_welcome_lines(data["welcome_lines"])
         except (OSError, ValueError, AttributeError) as error:
             log.warning("could not read %s (%s); using defaults", self.path, error)
 
@@ -97,6 +119,7 @@ class Settings:
             "vote": self.vote,
             "can_reset": self.can_reset,
             "mid_race": self.mid_race,
+            "welcome_lines": self.welcome_lines,
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

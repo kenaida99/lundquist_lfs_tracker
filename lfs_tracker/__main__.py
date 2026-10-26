@@ -42,6 +42,7 @@ async def serve(args: argparse.Namespace) -> None:
         host=settings.lfs_host,
         port=settings.lfs_port,
         admin_password=settings.admin_password,
+        settings=settings,
     )
     app = create_app(tracker, events, settings, link)
     server = uvicorn.Server(uvicorn.Config(app, host=args.web_host, port=args.web_port))

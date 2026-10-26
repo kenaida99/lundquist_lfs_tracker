@@ -22,9 +22,11 @@ class InSimLink:
         host: str,
         port: int,
         admin_password: str,
+        settings: Settings | None = None,
     ) -> None:
         self._tracker = tracker
         self._events = events
+        self._settings = settings
         self._host = host
         self._port = port
         self.host_info = HostInfo()
@@ -43,7 +45,7 @@ class InSimLink:
             host=self._host,
             port=self._port,
         )
-        register(insim, self._tracker, self._events, self.host_info)
+        register(insim, self._tracker, self._events, self.host_info, self._settings)
         self._insim = insim
         await insim.__aenter__()
 

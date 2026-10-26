@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from lfs_tracker.commands import practice_commands, qualify_commands, start_race_commands
 from lfs_tracker.events import EventManager
-from lfs_tracker.settings import Settings
+from lfs_tracker.settings import WELCOME_LINE_MAX, WELCOME_LINES, Settings
 from lfs_tracker.tracker import Tracker
 
 STATIC = Path(__file__).parent / "static"
@@ -42,6 +42,9 @@ class SettingsUpdate(BaseModel):
     vote: Literal["keep", "yes", "no"] | None = None
     can_reset: Literal["keep", "yes", "no"] | None = None
     mid_race: Literal["keep", "yes", "no"] | None = None
+    welcome_lines: list[Annotated[str, Field(max_length=WELCOME_LINE_MAX)]] | None = Field(
+        default=None, min_length=WELCOME_LINES, max_length=WELCOME_LINES
+    )
 
     @field_validator("lfs_host")
     @classmethod
@@ -73,6 +76,7 @@ def create_app(
             "vote": settings.vote,
             "can_reset": settings.can_reset,
             "mid_race": settings.mid_race,
+            "welcome_lines": settings.welcome_lines,
             "lfs_connected": link.connected,
             "role": "unknown" if not info.known else "host" if info.is_host else "guest",
             "host_name": info.name,

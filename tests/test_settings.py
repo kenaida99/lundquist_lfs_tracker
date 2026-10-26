@@ -4,12 +4,12 @@ import time
 
 from fastapi.testclient import TestClient
 from lfs_insim import InSim
-from lfs_insim.packets import IS_ACR, IS_ISM, IS_MST, IS_RST, IS_STA, TINY
+from lfs_insim.packets import IS_ACR, IS_BFN, IS_BTC, IS_BTN, IS_ISM, IS_MST, IS_NCN, IS_RST, IS_STA, INST, TINY
 from lfs_insim.testing import FakeLFS
 
 from lfs_tracker.connection import InSimLink
 from lfs_tracker.events import EventManager
-from lfs_tracker.insim_handlers import HostInfo
+from lfs_tracker.insim_handlers import CLOSE_ID, HostInfo, register
 from lfs_tracker.settings import Settings
 from lfs_tracker.tracker import Tracker
 from lfs_tracker.web import create_app
@@ -253,5 +253,61 @@ def test_link_restart_reconnects_to_another_host_with_the_new_password():
             assert (link.host_info.is_host, link.host_info.name) == (True, "Mine")
             await link.stop()
             assert not link.connected
+
+    asyncio.run(scenario())
+
+
+def test_welcome_lines_persist_and_are_validated(tmp_path):
+    path = tmp_path / "s.json"
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(path), FakeLink()))
+    assert client.get("/api/settings").json()["welcome_lines"] == [""] * 10
+
+    lines = ["^2Welcome to ^3the server", "", "^1No contact", *[""] * 7]
+    assert client.post("/api/settings", json={"welcome_lines": lines}).json()["welcome_lines"] == lines
+    assert Settings(path).welcome_lines == lines
+    assert Settings(path).welcome_enabled
+
+    for bad in (lines[:9], [*lines, "x"], ["x" * 81, *[""] * 9]):
+        assert client.post("/api/settings", json={"welcome_lines": bad}).status_code == 422
+    assert Settings(path).welcome_lines == lines
+
+
+def test_welcome_board_is_sent_to_new_connections_only():
+    async def scenario():
+        settings = Settings()
+        settings.update(welcome_lines=["^2Hello", "", "^1Rules", *[""] * 7])
+        async with FakeLFS() as lfs:
+            lfs.replies[TINY.NCN] = [IS_NCN(ReqI=1, UCID=2, UName="old", PName="Old")]
+            insim = InSim(port=lfs.port)
+            register(insim, Tracker(), EventManager(), settings=settings)
+            async with insim:
+                await lfs.wait_connected()
+                await lfs.send(IS_NCN(UCID=0, UName="", PName="host"))  # the host itself
+                await lfs.send(IS_NCN(UCID=5, UName="new", PName="New"))
+                await asyncio.sleep(0.3)
+                buttons = [p for p in lfs.received if isinstance(p, IS_BTN)]
+                assert {b.UCID for b in buttons} == {5}  # not the replayed UCID 2, not the host
+                assert [b.Text for b in buttons if b.Text] == ["^2Hello", "^1Rules", "Close"]
+                assert len(buttons) == 5  # 2 backgrounds, 2 filled lines, close
+                assert all(b.Inst & INST.ALWAYS_ON for b in buttons)  # joining drivers are not on track
+
+                await lfs.send(IS_BTC(ReqI=200, UCID=5, ClickID=CLOSE_ID))
+                await asyncio.sleep(0.3)
+                deletes = [p for p in lfs.received if isinstance(p, IS_BFN)]
+                assert [(d.UCID, d.ClickID, d.ClickMax) for d in deletes] == [(5, 0, CLOSE_ID)]
+
+    asyncio.run(scenario())
+
+
+def test_no_welcome_board_when_all_lines_are_blank():
+    async def scenario():
+        async with FakeLFS() as lfs:
+            insim = InSim(port=lfs.port)
+            register(insim, Tracker(), EventManager(), settings=Settings())
+            async with insim:
+                await lfs.wait_connected()
+                await lfs.send(IS_NCN(UCID=5, UName="new", PName="New"))
+                await asyncio.sleep(0.3)
+                assert not [p for p in lfs.received if isinstance(p, IS_BTN)]
 
     asyncio.run(scenario())

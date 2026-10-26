@@ -6,15 +6,48 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from lfs_insim import InSim, received
-from lfs_insim.packets import TINY, UCO
+from lfs_insim.packets import BFN, INST, ISB, TINY, UCO
 from lfs_insim.text import plain
 
 from lfs_tracker.events import RACE, EventManager, Violation
+from lfs_tracker.settings import WELCOME_LINES, Settings
 from lfs_tracker.standings import CIRCLE_PENALTY_MS, CIRCLES_PER_PENALTY
 from lfs_tracker.tracker import Tracker
 
 PTYPE_AI = 2
 RED = "^1"
+
+# Welcome board layout (InSim button coordinates, 0-200)
+BOARD_L, BOARD_T, BOARD_W, BOARD_H = 34, 30, 132, 120
+LINE_H = 9
+LINES_T = BOARD_T + 6
+CLOSE_W, CLOSE_H = 36, 12
+BACKGROUND_IDS = (0, 1)  # two dark buttons stacked, so the text is readable on any scene
+FIRST_LINE_ID = 2
+CLOSE_ID = FIRST_LINE_ID + WELCOME_LINES
+BOARD_REQI = 200  # ReqI of the board's buttons, to tell clicks on them from other InSim apps'
+
+
+def welcome_buttons(ucid: int, lines: list[str]) -> list[dict]:
+    """The IS_BTN fields that make up the welcome board for one connection."""
+    common = {"ReqI": BOARD_REQI, "UCID": ucid, "Inst": INST.ALWAYS_ON}  # visible in every LFS screen
+    buttons = [
+        {**common, "ClickID": click_id, "BStyle": ISB.DARK, "L": BOARD_L, "T": BOARD_T,
+         "W": BOARD_W, "H": BOARD_H}
+        for click_id in BACKGROUND_IDS
+    ]
+    for i, line in enumerate(lines[:WELCOME_LINES]):
+        if line.strip():
+            buttons.append(
+                {**common, "ClickID": FIRST_LINE_ID + i, "BStyle": ISB.LEFT, "L": BOARD_L + 2,
+                 "T": LINES_T + i * LINE_H, "W": BOARD_W - 4, "H": LINE_H, "Text": line}
+            )
+    buttons.append(
+        {**common, "ClickID": CLOSE_ID, "BStyle": ISB.CLICK | ISB.LIGHT,
+         "L": BOARD_L + (BOARD_W - CLOSE_W) // 2, "T": BOARD_T + BOARD_H - CLOSE_H - 4,
+         "W": CLOSE_W, "H": CLOSE_H, "Text": "Close"}
+    )
+    return buttons
 
 
 @dataclass
@@ -39,7 +72,11 @@ def violation_message(violation: Violation) -> str:
 
 
 def register(
-    insim: InSim, tracker: Tracker, events: EventManager, host_info: HostInfo | None = None
+    insim: InSim,
+    tracker: Tracker,
+    events: EventManager,
+    host_info: HostInfo | None = None,
+    settings: Settings | None = None,
 ) -> None:
     host_info = host_info or HostInfo()
 
@@ -69,6 +106,15 @@ def register(
     @insim.on.IS_NCN
     def new_connection(packet: received.IS_NCN) -> None:
         tracker.player_connected(packet.UCID, packet.UName, plain(packet.PName))
+        # ReqI != 0 is the replay of whoever was already there; UCID 0 is the host itself.
+        if settings is not None and packet.ReqI == 0 and packet.UCID != 0 and settings.welcome_enabled:
+            for button in welcome_buttons(packet.UCID, settings.welcome_lines):
+                insim.send.IS_BTN(**button)
+
+    @insim.on.IS_BTC
+    def board_clicked(packet: received.IS_BTC) -> None:
+        if packet.ReqI == BOARD_REQI and packet.ClickID == CLOSE_ID:
+            insim.send.IS_BFN(SubT=BFN.DEL_BTN, UCID=packet.UCID, ClickID=BACKGROUND_IDS[0], ClickMax=CLOSE_ID)
 
     @insim.on.IS_CPR
     def renamed(packet: received.IS_CPR) -> None:
