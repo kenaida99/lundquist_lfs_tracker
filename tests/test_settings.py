@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 
 from fastapi.testclient import TestClient
 from lfs_insim import InSim
@@ -88,7 +89,12 @@ def test_yes_no_options_are_sent_with_the_buttons_and_persist(tmp_path):
     assert (saved.vote, saved.can_reset, saved.mid_race) == ("yes", "no", "yes")
 
     options = ["/vote yes", "/canreset no", "/midrace yes"]
-    assert client.post("/api/qualify").json()["sent"] == ["/qual 10", *options, "/qualify"]
+    assert client.post("/api/qualify").json()["sent"] == [
+        "/laps=5",
+        "/qual 10",
+        *options,
+        "/qualify",
+    ]
     assert client.post("/api/start-race").json()["sent"] == [
         "/laps=5",
         "/start fixed",
@@ -98,6 +104,7 @@ def test_yes_no_options_are_sent_with_the_buttons_and_persist(tmp_path):
 
     client.post("/api/settings", json={"vote": "keep", "mid_race": "no"})
     assert client.post("/api/qualify").json()["sent"] == [
+        "/laps=5",
         "/qual 10",
         "/canreset no",
         "/midrace no",
@@ -125,11 +132,14 @@ def test_qualify_and_start_race_buttons_send_the_commands(tmp_path):
     client.post(
         "/api/settings", json={"qual_minutes": 20, "race_laps": 5, "grid_order": "random"}
     )
-    assert client.post("/api/qualify").json() == {"sent": ["/qual 20", "/qualify"]}
+    assert client.post("/api/qualify").json() == {"sent": ["/laps=5", "/qual 20", "/qualify"]}
     assert client.post("/api/start-race").json() == {
         "sent": ["/laps=5", "/start random", "/restart"]  # grid order before /restart
     }
-    assert link.commands == [["/qual 20", "/qualify"], ["/laps=5", "/start random", "/restart"]]
+    assert link.commands == [
+        ["/laps=5", "/qual 20", "/qualify"],
+        ["/laps=5", "/start random", "/restart"],
+    ]
 
 
 def test_practice_button_sends_laps_0_canreset_and_restart(tmp_path):
@@ -182,6 +192,24 @@ def test_link_sends_commands_to_lfs_and_logs_the_replies(monkeypatch):
                 pass
             else:
                 raise AssertionError("expected ConnectionError")
+
+    asyncio.run(scenario())
+
+
+def test_commands_are_sent_200ms_apart():
+    async def scenario():
+        async with FakeLFS() as lfs:
+            link = InSimLink(
+                Tracker(), EventManager(), host="127.0.0.1", port=lfs.port, admin_password=""
+            )
+            await link.start()
+            await lfs.wait_connected()
+            await asyncio.sleep(0.2)
+            started = time.monotonic()
+            await link.send_commands(["/laps=5", "/qual 10", "/qualify"])
+            elapsed = time.monotonic() - started
+            assert 0.4 <= elapsed < 0.6  # two 200 ms gaps
+            await link.stop()
 
     asyncio.run(scenario())
 

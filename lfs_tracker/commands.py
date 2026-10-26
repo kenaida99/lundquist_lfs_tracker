@@ -21,7 +21,12 @@ def practice_commands() -> list[str]:
 
 
 def qualify_commands(settings: Settings) -> list[str]:
-    return [f"/qual {settings.qual_minutes}", *option_commands(settings), "/qualify"]
+    return [
+        f"/laps={settings.race_laps}",
+        f"/qual {settings.qual_minutes}",
+        *option_commands(settings),
+        "/qualify",
+    ]
 
 
 def start_race_commands(settings: Settings) -> list[str]:

@@ -10,7 +10,7 @@ from lfs_tracker.events import EventManager
 from lfs_tracker.insim_handlers import HostInfo, register
 from lfs_tracker.tracker import Tracker
 
-COMMAND_GAP_S = 0.3  # between commands, so LFS handles each before the next
+COMMAND_GAP_S = 0.9  # between commands, so LFS handles each before the next
 
 
 class InSimLink:

@@ -32,7 +32,8 @@ values come from ⚙ Settings (qualifying minutes, race laps, grid order: fixed 
 random) and are sent as LFS commands:
 
 - SET PRACTICE MODE: `/laps=0`, `/canreset yes`, `/restart`
-- QUALIFY NOW: `/qual <minutes>`, the yes/no options below, `/qualify`
+- QUALIFY NOW: `/laps=<laps>`, `/qual <minutes>`, the yes/no options below, `/qualify`
+  (commands are sent 200 ms apart)
 - START RACE NOW: `/laps=<laps>`, `/start <fixed|reverse|random>`, the yes/no options, `/restart`
 
 Yes/no options (each can also be "Don't change", the default, which sends nothing):
