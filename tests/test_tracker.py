@@ -28,9 +28,15 @@ class FakeLink:
 
     def __init__(self):
         self.restarts = []
+        self.commands = []
 
     async def restart(self, *, host, port, admin_password):
         self.restarts.append((host, port, admin_password))
+
+    async def send_commands(self, commands):
+        if not self.connected:
+            raise ConnectionError("not connected to LFS")
+        self.commands.append(commands)
 
 
 async def settle() -> None:

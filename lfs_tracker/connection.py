@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from lfs_insim import InSim
 
 from lfs_tracker.events import EventManager
 from lfs_tracker.insim_handlers import HostInfo, register
 from lfs_tracker.tracker import Tracker
+
+COMMAND_GAP_S = 0.3  # between commands, so LFS handles each before the next
 
 
 class InSimLink:
@@ -52,3 +56,15 @@ class InSimLink:
         await self.stop()
         self._host, self._port, self._admin_password = host, port, admin_password
         await self.start()
+
+    async def send_commands(self, commands: list[str]) -> None:
+        """Send LFS commands as if typed in LFS, one after the other.
+
+        Raises ConnectionError when not connected.
+        """
+        if self._insim is None or not self._insim.connected:
+            raise ConnectionError("not connected to LFS")
+        for i, command in enumerate(commands):
+            if i:
+                await asyncio.sleep(COMMAND_GAP_S)
+            self._insim.command(command)

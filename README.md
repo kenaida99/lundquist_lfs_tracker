@@ -25,6 +25,21 @@ The host address, port and admin password can be changed from the **Settings** b
 Options: `--lfs-host`, `--lfs-port`, `--admin-password`, `--web-host`, `--web-port`,
 `--data-file`. Race results and settings are stored in `data/` (not committed).
 
+## Race control
+
+The page has **QUALIFY NOW** and **START RACE NOW** buttons (each asks for confirmation). The
+values come from ⚙ Settings (qualifying minutes, race laps, grid order: fixed / reverse /
+random) and are sent as LFS commands:
+
+- QUALIFY NOW: `/qual <minutes>`, the yes/no options below, `/qualify`
+- START RACE NOW: `/laps=<laps>`, `/start <fixed|reverse|random>`, the yes/no options, `/restart`
+
+Yes/no options (each can also be "Don't change", the default, which sends nothing):
+`/vote` (everyone can vote to restart), `/canreset` and `/midrace` (cars may join after the
+race has started).
+
+Commands only work when connected to the host's InSim (or as an admin).
+
 ## Rules
 
 - **Practice / qualifying:** the fastest lap per driver is kept. A lap in which the driver

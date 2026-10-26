@@ -3,7 +3,7 @@ import json
 
 from fastapi.testclient import TestClient
 from lfs_insim import InSim
-from lfs_insim.packets import IS_ISM, IS_RST, IS_STA, TINY
+from lfs_insim.packets import IS_ACR, IS_ISM, IS_MST, IS_RST, IS_STA, TINY
 from lfs_insim.testing import FakeLFS
 
 from lfs_tracker.connection import InSimLink
@@ -52,6 +52,130 @@ def test_invalid_host_or_port_is_rejected(tmp_path):
     for body in ({"lfs_host": "  "}, {"lfs_host": ""}, {"lfs_port": 0}, {"lfs_port": 70000}):
         assert client.post("/api/settings", json=body).status_code == 422
     assert link.restarts == []
+
+
+def test_race_settings_persist_without_reconnecting(tmp_path):
+    path = tmp_path / "settings.json"
+    link = FakeLink()
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(path), link))
+
+    body = client.get("/api/settings").json()
+    assert (body["qual_minutes"], body["race_laps"], body["grid_order"]) == (10, 5, "fixed")
+
+    reply = client.post(
+        "/api/settings", json={"qual_minutes": 20, "race_laps": 8, "grid_order": "reverse"}
+    ).json()
+    assert (reply["qual_minutes"], reply["race_laps"], reply["grid_order"]) == (20, 8, "reverse")
+    assert link.restarts == []  # nothing about the connection changed
+    saved = Settings(path)
+    assert (saved.qual_minutes, saved.race_laps, saved.grid_order) == (20, 8, "reverse")
+
+    # an unchanged connection setting does not reconnect either
+    client.post("/api/settings", json={"lfs_port": 29999})
+    assert link.restarts == []
+
+
+def test_yes_no_options_are_sent_with_the_buttons_and_persist(tmp_path):
+    path = tmp_path / "s.json"
+    link = FakeLink()
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(path), link))
+    body = client.get("/api/settings").json()
+    assert (body["vote"], body["can_reset"], body["mid_race"]) == ("keep", "keep", "keep")
+
+    client.post("/api/settings", json={"vote": "yes", "can_reset": "no", "mid_race": "yes"})
+    assert link.restarts == []
+    saved = Settings(path)
+    assert (saved.vote, saved.can_reset, saved.mid_race) == ("yes", "no", "yes")
+
+    options = ["/vote yes", "/canreset no", "/midrace yes"]
+    assert client.post("/api/qualify").json()["sent"] == ["/qual 10", *options, "/qualify"]
+    assert client.post("/api/start-race").json()["sent"] == [
+        "/laps=5",
+        "/start fixed",
+        *options,  # still before /restart
+        "/restart",
+    ]
+
+    client.post("/api/settings", json={"vote": "keep", "mid_race": "no"})
+    assert client.post("/api/qualify").json()["sent"] == [
+        "/qual 10",
+        "/canreset no",
+        "/midrace no",
+        "/qualify",
+    ]
+    for body in ({"vote": "maybe"}, {"can_reset": ""}, {"mid_race": True}):
+        assert client.post("/api/settings", json=body).status_code == 422
+
+
+def test_invalid_race_settings_are_rejected(tmp_path):
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(tmp_path / "s.json"), FakeLink()))
+    for body in (
+        {"qual_minutes": 0},
+        {"qual_minutes": 181},
+        {"race_laps": 0},
+        {"race_laps": 100},
+        {"grid_order": "sideways"},
+    ):
+        assert client.post("/api/settings", json=body).status_code == 422
+
+
+def test_qualify_and_start_race_buttons_send_the_commands(tmp_path):
+    link = FakeLink()
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(tmp_path / "s.json"), link))
+    client.post(
+        "/api/settings", json={"qual_minutes": 20, "race_laps": 5, "grid_order": "random"}
+    )
+    assert client.post("/api/qualify").json() == {"sent": ["/qual 20", "/qualify"]}
+    assert client.post("/api/start-race").json() == {
+        "sent": ["/laps=5", "/start random", "/restart"]  # grid order before /restart
+    }
+    assert link.commands == [["/qual 20", "/qualify"], ["/laps=5", "/start random", "/restart"]]
+
+
+def test_buttons_report_when_not_connected(tmp_path):
+    link = FakeLink()
+    link.connected = False
+    client = TestClient(create_app(Tracker(), EventManager(), Settings(tmp_path / "s.json"), link))
+    for url in ("/api/qualify", "/api/start-race"):
+        reply = client.post(url)
+        assert reply.status_code == 503 and "not connected" in reply.json()["detail"]
+
+
+def test_link_sends_commands_to_lfs_and_logs_the_replies(monkeypatch):
+    monkeypatch.setattr("lfs_tracker.connection.COMMAND_GAP_S", 0.01)
+
+    async def scenario():
+        async with FakeLFS() as lfs:
+            link = InSimLink(
+                Tracker(), EventManager(), host="127.0.0.1", port=lfs.port, admin_password=""
+            )
+            await link.start()
+            await lfs.wait_connected()
+            await asyncio.sleep(0.2)
+            await link.send_commands(["/laps=5", "/start fixed", "/restart"])
+            await asyncio.sleep(0.2)
+            assert [p.Msg for p in lfs.received if isinstance(p, IS_MST)] == [
+                "/laps=5",
+                "/start fixed",
+                "/restart",
+            ]
+            await lfs.send(IS_ACR(UCID=0, Result=1, Text="/restart"))
+            await lfs.send(IS_ACR(UCID=0, Result=3, Text="/nope"))
+            await lfs.send(IS_ACR(UCID=4, Result=1, Text="/kick bob"))  # someone else's command
+            await asyncio.sleep(0.2)
+            assert list(link.host_info.command_results) == [
+                {"text": "/restart", "result": "accepted"},
+                {"text": "/nope", "result": "unknown command"},
+            ]
+            await link.stop()
+            try:
+                await link.send_commands(["/restart"])
+            except ConnectionError:
+                pass
+            else:
+                raise AssertionError("expected ConnectionError")
+
+    asyncio.run(scenario())
 
 
 def test_role_is_reported():

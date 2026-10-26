@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
+from lfs_tracker.commands import qualify_commands, start_race_commands
 from lfs_tracker.events import EventManager
 from lfs_tracker.settings import Settings
 from lfs_tracker.tracker import Tracker
@@ -24,6 +25,8 @@ class Link(Protocol):
 
     async def restart(self, *, host: str, port: int, admin_password: str) -> None: ...
 
+    async def send_commands(self, commands: list[str]) -> None: ...
+
 
 class NewEvent(BaseModel):
     name: str = ""
@@ -33,6 +36,12 @@ class SettingsUpdate(BaseModel):
     lfs_host: str | None = Field(default=None, min_length=1, max_length=255)
     lfs_port: int | None = Field(default=None, ge=1, le=65535)
     admin_password: str | None = None  # None keeps the current one, "" clears it
+    qual_minutes: int | None = Field(default=None, ge=1, le=180)
+    race_laps: int | None = Field(default=None, ge=1, le=99)
+    grid_order: Literal["fixed", "reverse", "random"] | None = None
+    vote: Literal["keep", "yes", "no"] | None = None
+    can_reset: Literal["keep", "yes", "no"] | None = None
+    mid_race: Literal["keep", "yes", "no"] | None = None
 
     @field_validator("lfs_host")
     @classmethod
@@ -58,9 +67,16 @@ def create_app(
             "lfs_host": settings.lfs_host,
             "lfs_port": settings.lfs_port,
             "admin_password_set": bool(settings.admin_password),  # never send the password itself
+            "qual_minutes": settings.qual_minutes,
+            "race_laps": settings.race_laps,
+            "grid_order": settings.grid_order,
+            "vote": settings.vote,
+            "can_reset": settings.can_reset,
+            "mid_race": settings.mid_race,
             "lfs_connected": link.connected,
             "role": "unknown" if not info.known else "host" if info.is_host else "guest",
             "host_name": info.name,
+            "command_results": list(getattr(info, "command_results", [])),
         }
 
     @app.get("/api/settings")
@@ -69,14 +85,32 @@ def create_app(
 
     @app.post("/api/settings")
     async def update_settings(body: SettingsUpdate) -> dict:
-        settings.update(
-            lfs_host=body.lfs_host, lfs_port=body.lfs_port, admin_password=body.admin_password
-        )
-        await link.restart(
-            host=settings.lfs_host, port=settings.lfs_port, admin_password=settings.admin_password
-        )
-        await asyncio.sleep(RECONNECT_WAIT_S)
+        connection = (settings.lfs_host, settings.lfs_port, settings.admin_password)
+        settings.update(**body.model_dump())
+        # The race settings are used only when a button is clicked: no reconnect for them.
+        if connection != (settings.lfs_host, settings.lfs_port, settings.admin_password):
+            await link.restart(
+                host=settings.lfs_host,
+                port=settings.lfs_port,
+                admin_password=settings.admin_password,
+            )
+            await asyncio.sleep(RECONNECT_WAIT_S)
         return settings_view()
+
+    async def send(commands: list[str]) -> dict:
+        try:
+            await link.send_commands(commands)
+        except ConnectionError as error:
+            raise HTTPException(503, str(error)) from error
+        return {"sent": commands}
+
+    @app.post("/api/qualify")
+    async def qualify_now() -> dict:
+        return await send(qualify_commands(settings))
+
+    @app.post("/api/start-race")
+    async def start_race_now() -> dict:
+        return await send(start_race_commands(settings))
 
     @app.get("/api/players")
     async def players() -> dict:

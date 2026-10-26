@@ -23,11 +23,23 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }
   .muted { color: #888; } .bad-text { color: #f44336; }
   hr { border: 0; border-top: 1px solid #2c323c; margin: 2rem 0 0; }
+  button.big { font-size: 1.3rem; font-weight: 700; letter-spacing: .03em; padding: .9rem 1.6rem; border-radius: .5rem; color: #fff; }
+  button.big small { display: block; font-size: .75rem; font-weight: 400; opacity: .85; letter-spacing: 0; }
+  button.qualify { background: #d68a1f; border-color: #d68a1f; } button.qualify:hover { background: #e99a2c; }
+  button.race { background: #2f9e44; border-color: #2f9e44; } button.race:hover { background: #38b24f; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #cmd-status { font-size: .9rem; }
 </style>
 </head>
 <body>
 <span class="status" id="status"></span>
 <h1>LFS Tracker</h1>
+
+<div class="bar">
+  <button class="big qualify" id="qualify-now">QUALIFY NOW<small id="qualify-detail"></small></button>
+  <button class="big race" id="race-now">START RACE NOW<small id="race-detail"></small></button>
+  <span id="cmd-status" class="muted"></span>
+</div>
 
 <div class="bar">
   <input id="event-name" placeholder="Event name (optional)">
@@ -50,6 +62,28 @@
     <input id="admin-password" type="password" autocomplete="off">
     <button class="primary" id="save-settings">Save &amp; reconnect</button>
     <button id="clear-password">Clear password</button>
+  </div>
+  <div class="bar">
+    <label for="qual-minutes">Qualifying minutes</label>
+    <input id="qual-minutes" type="number" min="1" max="180" style="width:6rem">
+    <label for="race-laps">Race laps</label>
+    <input id="race-laps" type="number" min="1" max="99" style="width:6rem">
+    <label for="grid-order">Grid order</label>
+    <select id="grid-order">
+      <option value="fixed">Fixed (normal)</option>
+      <option value="reverse">Reverse</option>
+      <option value="random">Random</option>
+    </select>
+    <span class="muted">saved automatically</span>
+  </div>
+  <div class="bar">
+    <label for="vote">Everyone can vote to restart (/vote)</label>
+    <select id="vote"><option value="keep">Don't change</option><option value="yes">Yes</option><option value="no">No</option></select>
+    <label for="can-reset">Allow reset (/canreset)</label>
+    <select id="can-reset"><option value="keep">Don't change</option><option value="yes">Yes</option><option value="no">No</option></select>
+    <label for="mid-race">Join after race start (/midrace)</label>
+    <select id="mid-race"><option value="keep">Don't change</option><option value="yes">Yes</option><option value="no">No</option></select>
+    <span class="muted">sent with QUALIFY NOW and START RACE NOW</span>
   </div>
   <p class="muted" id="settings-info"></p>
 </div>
@@ -204,6 +238,55 @@ document.getElementById('save-settings').onclick = () => {
   saveSettings(pw === '' ? null : pw);
 };
 document.getElementById('clear-password').onclick = () => saveSettings('');
+
+// ---- race control: QUALIFY NOW / START RACE NOW and the race settings ----
+const GRID = {fixed: 'fixed grid', reverse: 'reverse grid', random: 'random grid'};
+let lastCommand = '';
+
+async function refreshControl() {
+  try {
+    const s = await (await fetch('/api/settings')).json();
+    document.getElementById('qualify-detail').textContent = `${s.qual_minutes} min`;
+    document.getElementById('race-detail').textContent = `${s.race_laps} laps · ${GRID[s.grid_order]}`;
+    for (const [id, value] of [['qual-minutes', s.qual_minutes], ['race-laps', s.race_laps], ['grid-order', s.grid_order], ['vote', s.vote], ['can-reset', s.can_reset], ['mid-race', s.mid_race]]) {
+      const el = document.getElementById(id);
+      if (document.activeElement !== el) el.value = value;
+    }
+    document.getElementById('qualify-now').disabled = document.getElementById('race-now').disabled = !s.lfs_connected;
+    const replies = s.command_results.map(r => `${esc(r.text)} → ${esc(r.result)}`).join(' · ');
+    document.getElementById('cmd-status').innerHTML = [lastCommand && esc(lastCommand), replies && 'LFS: ' + replies].filter(Boolean).join('<br>');
+  } catch { /* the status indicator above reports connectivity */ }
+}
+
+async function sendCommand(url, question) {
+  if (!confirm(question)) return;
+  const status = document.getElementById('cmd-status');
+  const r = await fetch(url, {method: 'POST'});
+  const body = await r.json();
+  lastCommand = r.ok ? 'Sent: ' + body.sent.join('  ') : 'Not sent: ' + (body.detail ?? r.status);
+  status.textContent = lastCommand;
+  setTimeout(refreshControl, 800);
+}
+document.getElementById('qualify-now').onclick = () =>
+  sendCommand('/api/qualify', `Start qualifying now (${document.getElementById('qual-minutes').value} min)?`);
+document.getElementById('race-now').onclick = () =>
+  sendCommand('/api/start-race', `Start the race now (${document.getElementById('race-laps').value} laps, ${document.getElementById('grid-order').value} grid)?`);
+
+async function saveRaceSettings() {
+  const r = await fetch('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+    qual_minutes: Number(document.getElementById('qual-minutes').value),
+    race_laps: Number(document.getElementById('race-laps').value),
+    grid_order: document.getElementById('grid-order').value,
+    vote: document.getElementById('vote').value,
+    can_reset: document.getElementById('can-reset').value,
+    mid_race: document.getElementById('mid-race').value,
+  })});
+  if (!r.ok) document.getElementById('settings-info').innerHTML = '<span class="bad">Not saved: qualifying minutes 1-180, race laps 1-99.</span>';
+  refreshControl();
+}
+for (const id of ['qual-minutes', 'race-laps', 'grid-order', 'vote', 'can-reset', 'mid-race']) document.getElementById(id).onchange = saveRaceSettings;
+refreshControl();
+setInterval(refreshControl, 2000);
 </script>
 </body>
 </html>

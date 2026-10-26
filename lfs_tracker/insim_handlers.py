@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 
 from lfs_insim import InSim, received
 from lfs_insim.packets import TINY, UCO
@@ -21,6 +22,8 @@ class HostInfo:
     known: bool = False  # IS_ISM only arrives in multiplayer
     is_host: bool = False
     name: str = ""
+    # LFS's reports (IS_ACR) on commands we sent; only the host sends them
+    command_results: deque[dict] = field(default_factory=lambda: deque(maxlen=10))
 
 
 def violation_message(violation: Violation) -> str:
@@ -49,6 +52,13 @@ def register(
         insim.send.IS_TINY(ReqI=1, SubT=TINY.SST)  # answered with IS_STA
         insim.send.IS_TINY(ReqI=1, SubT=TINY.RST)  # answered with IS_RST: the session's laps
         insim.send.IS_TINY(ReqI=1, SubT=TINY.ISM)
+
+    @insim.on.IS_ACR
+    def command_report(packet: received.IS_ACR) -> None:
+        if packet.UCID != 0:  # only our own commands run as the host
+            return
+        outcome = {1: "accepted", 2: "rejected", 3: "unknown command"}.get(packet.Result, "?")
+        host_info.command_results.append({"text": plain(packet.Text), "result": outcome})
 
     @insim.on.IS_ISM
     def multiplayer(packet: received.IS_ISM) -> None:
