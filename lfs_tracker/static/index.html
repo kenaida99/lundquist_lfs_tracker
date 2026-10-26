@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LFS Tracker</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #14171c; color: #e6e6e6; }
+  h1 { margin-top: 0; }
+  h2 { margin: 1.5rem 0 .5rem; }
+  .status { float: right; font-size: .9rem; }
+  .ok { color: #4caf50; } .bad { color: #f44336; }
+  table { border-collapse: collapse; width: 100%; background: #1d2128; }
+  th, td { text-align: left; padding: .4rem .7rem; border-bottom: 1px solid #2c323c; }
+  th { background: #262c36; }
+  td.empty { color: #888; font-style: italic; }
+  details summary { cursor: pointer; }
+  .badge { background: #2c323c; border-radius: 1rem; padding: 0 .5rem; font-size: .8rem; }
+  .bar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+  button, select, input { background: #262c36; color: #e6e6e6; border: 1px solid #3a4250; border-radius: .3rem; padding: .35rem .7rem; font: inherit; }
+  button { cursor: pointer; } button:hover { background: #323a47; }
+  button.primary { background: #2e6fd6; border-color: #2e6fd6; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }
+  .muted { color: #888; } .bad-text { color: #f44336; }
+  hr { border: 0; border-top: 1px solid #2c323c; margin: 2rem 0 0; }
+</style>
+</head>
+<body>
+<span class="status" id="status"></span>
+<h1>LFS Tracker</h1>
+
+<div class="bar">
+  <input id="event-name" placeholder="Event name (optional)">
+  <button class="primary" id="start-event">Start new event</button>
+  <button id="end-event">End event</button>
+  <select id="event-select"></select>
+  <span class="muted" id="mode"></span>
+  <button id="settings-btn" style="margin-left:auto">⚙ Settings</button>
+</div>
+<div id="settings" hidden>
+  <h3>Settings</h3>
+  <div class="bar">
+    <label for="lfs-host">LFS host address</label>
+    <input id="lfs-host" placeholder="127.0.0.1" autocomplete="off">
+    <label for="lfs-port">InSim port</label>
+    <input id="lfs-port" type="number" min="1" max="65535" style="width:6rem">
+  </div>
+  <div class="bar">
+    <label for="admin-password">Admin password</label>
+    <input id="admin-password" type="password" autocomplete="off">
+    <button class="primary" id="save-settings">Save &amp; reconnect</button>
+    <button id="clear-password">Clear password</button>
+  </div>
+  <p class="muted" id="settings-info"></p>
+</div>
+<div id="event"><p class="muted">No event yet. Click "Start new event" to begin collecting results.</p></div>
+<hr>
+
+<h2>On track (<span id="n-track">0</span>)</h2>
+<table><thead><tr>
+  <th>Username</th><th>Nickname</th><th>UCID</th><th>PLID</th><th>On track since</th><th>Circle entries</th>
+</tr></thead><tbody id="on-track"></tbody></table>
+
+<h2>In garage (<span id="n-garage">0</span>)</h2>
+<table><thead><tr>
+  <th>Username</th><th>Nickname</th><th>UCID</th><th>Circle entries</th>
+</tr></thead><tbody id="in-garage"></tbody></table>
+
+<h2>Recent circle entries</h2>
+<table><thead><tr>
+  <th>Time</th><th>Username</th><th>UCID</th><th>PLID</th><th>Circle</th><th>Position (m)</th>
+</tr></thead><tbody id="log"></tbody></table>
+
+<script>
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const time = iso => iso ? new Date(iso).toLocaleTimeString() : '';
+
+function entries(p) {
+  const list = p.circle_entries;
+  if (!list.length) return '<span class="badge">0</span>';
+  const rows = list.map(e => `<li>${time(e.at)} – circle ${e.circle} (PLID ${e.plid})</li>`).join('');
+  return `<details><summary><span class="badge">${list.length}</span></summary><ul>${rows}</ul></details>`;
+}
+
+function fill(id, players, row, cols) {
+  document.getElementById(id).innerHTML = players.length
+    ? players.map(row).join('')
+    : `<tr><td class="empty" colspan="${cols}">Nobody</td></tr>`;
+}
+
+async function refresh() {
+  const status = document.getElementById('status');
+  try {
+    const r = await fetch('/api/players');
+    const d = await r.json();
+    status.innerHTML = d.lfs_connected ? '<span class="ok">● LFS connected</span>' : '<span class="bad">● LFS not connected</span>';
+    document.getElementById('n-track').textContent = d.on_track.length;
+    document.getElementById('n-garage').textContent = d.in_garage.length;
+    fill('on-track', d.on_track, p => `<tr><td>${esc(p.username)}</td><td>${esc(p.nickname)}</td><td>${p.ucid}</td><td>${p.plid}</td><td>${time(p.on_track_since)}</td><td>${entries(p)}</td></tr>`, 6);
+    fill('in-garage', d.in_garage, p => `<tr><td>${esc(p.username)}</td><td>${esc(p.nickname)}</td><td>${p.ucid}</td><td>${entries(p)}</td></tr>`, 4);
+    fill('log', d.circle_log, e => `<tr><td>${time(e.at)}</td><td>${esc(e.username)}</td><td>${e.ucid}</td><td>${e.plid}</td><td>${e.circle}</td><td>${e.x.toFixed(1)}, ${e.y.toFixed(1)}</td></tr>`, 6);
+  } catch {
+    status.innerHTML = '<span class="bad">● Web server unreachable</span>';
+  }
+}
+refresh();
+setInterval(refresh, 1000);
+
+const MODES = {0: 'Practice', 1: 'Race', 2: 'Qualifying'};
+const ms = v => {
+  if (v == null) return '';
+  const m = Math.floor(v / 60000), s = ((v % 60000) / 1000).toFixed(3).padStart(6, '0');
+  return m ? `${m}:${s}` : s;
+};
+let selected = null;   // event id the user picked; null follows the active event
+
+function board(rows) {
+  if (!rows.length) return '<p class="muted">No laps yet.</p>';
+  return `<table><thead><tr><th>#</th><th>Driver</th><th>Best lap</th><th>Gap</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${r.position}</td><td>${esc(r.nickname)} <span class="muted">${esc(r.username)}</span></td><td>${ms(r.best_ms)}</td><td>${r.position === 1 ? '' : '+' + ms(r.gap_ms)}</td></tr>`).join('') +
+    '</tbody></table>';
+}
+
+function race(r) {
+  const body = r.standings.length ? r.standings.map(s => {
+    const pos = s.position ?? s.status;
+    const pen = s.circle_penalties ? `<span class="bad-text">+${s.circle_penalty_ms / 1000}s</span> (${s.circle_penalties})` : '';
+    const down = s.laps_down ? `-${s.laps_down} lap${s.laps_down > 1 ? 's' : ''} (+${ms(s.lap_deficit_ms)})` : '';
+    return `<tr><td>${pos}</td><td>${esc(s.nickname)} <span class="muted">${esc(s.username)}</span></td><td>${s.laps}</td>` +
+      `<td>${ms(s.total_ms)}</td><td>${s.circle_hits}</td><td>${pen}</td><td>${down}</td><td><b>${ms(s.adjusted_ms)}</b></td><td>${ms(s.best_ms)}</td></tr>`;
+  }).join('') : `<tr><td class="empty" colspan="9">No results yet</td></tr>`;
+  return `<h3>Race ${r.number} <span class="muted">${r.race_laps ? r.race_laps + ' laps · ' : ''}${time(r.started_at)}</span></h3>` +
+    `<table><thead><tr><th>Pos</th><th>Driver</th><th>Laps</th><th>LFS time</th><th>Circle hits</th><th>Circle penalty</th><th>Laps down</th><th>Final time</th><th>Best lap</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function renderEvent(e) {
+  document.getElementById('event').innerHTML =
+    `<h2>${esc(e.name)} <span class="muted">${e.active ? '(active)' : '(ended)'}</span></h2>` +
+    `<div class="grid"><div><h3>Practice – fastest laps</h3>${board(e.practice)}</div>` +
+    `<div><h3>Qualifying</h3>${board(e.qualifying)}</div></div>` +
+    (e.races.length ? e.races.slice().reverse().map(race).join('') : '<h3>Races</h3><p class="muted">No races yet.</p>');
+}
+
+async function refreshEvents() {
+  try {
+    const d = await (await fetch('/api/events')).json();
+    document.getElementById('mode').textContent = 'LFS session: ' + (MODES[d.mode] ?? d.mode);
+    const select = document.getElementById('event-select');
+    select.innerHTML = d.events.map(e => `<option value="${e.id}">${esc(e.name)}${e.active ? ' (active)' : ''}</option>`).join('');
+    const active = d.events.find(e => e.active);
+    const id = selected ?? (active ? active.id : (d.events[0] ? d.events[0].id : null));
+    document.getElementById('end-event').disabled = !active;
+    if (id == null) return;
+    select.value = id;
+    renderEvent(await (await fetch('/api/events/' + id)).json());
+  } catch { /* the status indicator above reports connectivity */ }
+}
+
+document.getElementById('start-event').onclick = async () => {
+  const input = document.getElementById('event-name');
+  await fetch('/api/events', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: input.value})});
+  input.value = '';
+  selected = null;
+  refreshEvents();
+};
+document.getElementById('end-event').onclick = async () => {
+  await fetch('/api/events/end', {method: 'POST'});
+  refreshEvents();
+};
+document.getElementById('event-select').onchange = e => { selected = Number(e.target.value); refreshEvents(); };
+refreshEvents();
+setInterval(refreshEvents, 2000);
+
+async function refreshSettings(fillForm = false) {
+  const s = await (await fetch('/api/settings')).json();
+  const role = {host: 'host', guest: 'guest (not the host)', unknown: 'not in a multiplayer server'}[s.role];
+  if (fillForm) {
+    document.getElementById('lfs-host').value = s.lfs_host;
+    document.getElementById('lfs-port').value = s.lfs_port;
+  }
+  document.getElementById('admin-password').placeholder = s.admin_password_set ? '(password set)' : '(not set)';
+  document.getElementById('settings-info').innerHTML =
+    `InSim at ${esc(s.lfs_host)}:${s.lfs_port}: ${s.lfs_connected ? '<span class="ok">connected</span>' : '<span class="bad">not connected - check the address, port and password</span>'}` +
+    ` · You are a ${role}${s.host_name ? ' on "' + esc(s.host_name) + '"' : ''}.` +
+    (s.role === 'guest' ? '<br><span class="bad-text">As a guest, LFS only accepts IS_MTC messages to other drivers from the host\'s own InSim. Enter the host\'s address above.</span>' : '');
+}
+async function saveSettings(password) {
+  const info = document.getElementById('settings-info');
+  info.textContent = 'Reconnecting…';
+  const body = {lfs_host: document.getElementById('lfs-host').value, lfs_port: Number(document.getElementById('lfs-port').value)};
+  if (password !== null) body.admin_password = password;  // omitted = keep the saved password
+  const r = await fetch('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  document.getElementById('admin-password').value = '';
+  if (!r.ok) { info.innerHTML = '<span class="bad">Not saved: enter a host address and a port from 1 to 65535.</span>'; return; }
+  refreshSettings(true);
+}
+document.getElementById('settings-btn').onclick = () => {
+  const panel = document.getElementById('settings');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) refreshSettings(true);
+};
+document.getElementById('save-settings').onclick = () => {
+  const pw = document.getElementById('admin-password').value;
+  saveSettings(pw === '' ? null : pw);
+};
+document.getElementById('clear-password').onclick = () => saveSettings('');
+</script>
+</body>
+</html>

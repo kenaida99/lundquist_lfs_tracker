@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Runtime data: race results and settings (includes the InSim admin password)
+data/
