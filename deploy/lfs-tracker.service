@@ -1,0 +1,22 @@
+[Unit]
+Description=LFS Tracker (InSim client and web page)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lfs
+Group=lfs
+WorkingDirectory=/opt/lfs_tracker
+# WEB_USERNAME, WEB_PASSWORD, PUBLIC_URL ... (see README); readable by root only
+EnvironmentFile=/etc/lfs-tracker.env
+ExecStart=/opt/lfs_tracker/.venv/bin/python -m lfs_tracker
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/lfs_tracker/data
+
+[Install]
+WantedBy=multi-user.target
