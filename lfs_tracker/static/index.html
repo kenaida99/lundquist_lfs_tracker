@@ -13,6 +13,7 @@
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { color-scheme: dark; }
   body {
     margin: 0; color: var(--text); font: 15px/1.5 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -159,6 +160,8 @@
   <span class="pill" id="status"></span>
   <button class="ghost" id="welcome-btn">💬 Welcome board</button>
   <button class="ghost" id="settings-btn">⚙ Settings</button>
+  <span class="pill" id="user" hidden></span>
+  <button class="ghost" id="signout" hidden>Sign out</button>
 </header>
 
 <section class="card control">
@@ -281,6 +284,20 @@ const time = iso => iso ? new Date(iso).toLocaleTimeString([], {hour: '2-digit',
 const $ = id => document.getElementById(id);
 const driver = (nick, user) => `${esc(nick)}<span class="u">${esc(user)}</span>`;
 const pos = n => `<span class="pos${n <= 3 ? ' p' + n : ''}">${n}</span>`;
+
+// An expired session or changed password: reload, which sends the browser to the login page.
+const plainFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const r = await plainFetch(...args);
+  if (r.status === 401) location.reload();
+  return r;
+};
+plainFetch('/api/me').then(r => r.json()).then(me => {
+  if (!me.user) return;  // the page is not protected by a login
+  $('user').textContent = me.user;
+  $('user').hidden = $('signout').hidden = false;
+});
+$('signout').onclick = async () => { await plainFetch('/logout', {method: 'POST'}); location.reload(); };
 
 function entries(p) {
   const list = p.circle_entries;

@@ -6,10 +6,11 @@ import asyncio
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
+from lfs_tracker.auth import AuthConfig, install_auth
 from lfs_tracker.commands import practice_commands, qualify_commands, start_race_commands
 from lfs_tracker.events import EventManager
 from lfs_tracker.settings import WELCOME_LINE_MAX, WELCOME_LINES, Settings
@@ -61,8 +62,16 @@ def create_app(
     events: EventManager,
     settings: Settings,
     link: Link,
+    auth: AuthConfig | None = None,
 ) -> FastAPI:
     app = FastAPI(title="LFS Tracker")
+    if auth is not None:
+        install_auth(app, auth)
+
+    @app.get("/api/me")
+    async def me(request: Request) -> dict:
+        # None when the page is not protected by a login
+        return {"user": request.scope.get("session", {}).get("user")}
 
     def settings_view() -> dict:
         info = link.host_info

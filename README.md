@@ -25,6 +25,23 @@ The host address, port and admin password can be changed from the **Settings** b
 Options: `--lfs-host`, `--lfs-port`, `--admin-password`, `--web-host`, `--web-port`,
 `--data-file`. Race results and settings are stored in `data/` (not committed).
 
+## Web login
+
+Without a login the page is open to anyone who can reach it, so the tracker only starts on
+`127.0.0.1`; with any other `--web-host` it refuses to start. To protect the page set these
+environment variables (e.g. in a systemd `EnvironmentFile`) and start the tracker:
+
+| Variable | Meaning |
+| --- | --- |
+| `WEB_USERNAME`, `WEB_PASSWORD` | the one account that may sign in (password: 8+ characters) |
+| `PUBLIC_URL` | set to `https://...` when served over https, so the cookie is marked secure |
+| `SESSION_SECRET` | optional; otherwise one is generated and kept in `data/session_secret` |
+
+Everything (page and API) then needs a sign-in. Sessions last 7 days and end when the username or
+password changes. After 5 wrong passwords an address is locked out for 5 minutes. Serve it over
+HTTPS (e.g. a Caddy reverse proxy to `127.0.0.1:8000`), as the password is otherwise sent in
+clear text.
+
 ## Race control
 
 The page has **SET PRACTICE MODE**, **QUALIFY NOW** and **START RACE NOW** buttons (each asks for confirmation). The
