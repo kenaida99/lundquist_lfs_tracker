@@ -5,3 +5,11 @@ __pycache__/
 
 # Runtime data: race results and settings (includes the InSim admin password)
 data/
+
+# Never commit credentials
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+.env
+*.env
