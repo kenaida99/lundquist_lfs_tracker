@@ -158,4 +158,18 @@ def create_app(
     async def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
+    # The public, read-only view: no login needed (see auth.PUBLIC_PATHS). Race results only: no
+    # player list, settings or controls, and nothing can be changed through it.
+    @app.get("/results")
+    async def public_page() -> FileResponse:
+        return FileResponse(STATIC / "index.html")
+
+    @app.get("/public/api/events")
+    async def public_events() -> dict:
+        return await list_events()
+
+    @app.get("/public/api/events/{event_id}")
+    async def public_event(event_id: int) -> dict:
+        return await get_event(event_id)
+
     return app

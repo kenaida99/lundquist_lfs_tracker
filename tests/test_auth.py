@@ -101,6 +101,19 @@ def test_cookie_is_secure_only_when_served_over_https(tmp_path):
     assert "httponly" in sign_in(make_client(tmp_path)).headers["set-cookie"].lower()
 
 
+def test_public_results_need_no_login_but_nothing_else_does(tmp_path):
+    client = make_client(tmp_path)
+    assert client.get("/results").status_code == 200
+    assert client.get("/results/", follow_redirects=True).status_code == 200
+    assert client.get("/public/api/events").json() == {"mode": 0, "events": []}
+    assert client.get("/public/api/events/1").status_code == 404
+    # read-only: nothing can be changed, and the private API and its lookalikes stay locked
+    assert client.post("/public/api/events").status_code == 405
+    assert client.post("/public/api/events/end").status_code in (404, 405)
+    for path in ("/api/events", "/api/players", "/api/settings", "/publicity", "/results.json", "/public"):
+        assert client.get(path).status_code in (303, 401), path
+
+
 def test_without_auth_the_page_is_open_and_me_is_empty(tmp_path):
     client = TestClient(create_app(Tracker(), EventManager(), Settings(tmp_path / "s.json"), FakeLink()))
     assert client.get("/api/settings").status_code == 200

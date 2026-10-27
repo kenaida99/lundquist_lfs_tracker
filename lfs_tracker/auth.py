@@ -25,7 +25,8 @@ from starlette.middleware.sessions import SessionMiddleware
 log = logging.getLogger(__name__)
 
 SESSION_MAX_AGE_S = 7 * 24 * 3600
-PUBLIC_PATHS = {"/login", "/logout"}
+PUBLIC_PATHS = {"/login", "/logout", "/results"}
+PUBLIC_PREFIXES = ("/public/",)  # the read-only results API
 MIN_PASSWORD_LENGTH = 8
 MAX_FAILURES = 5  # wrong passwords from one address ...
 LOCKOUT_S = 300  # ... and it is locked out for this long
@@ -112,7 +113,8 @@ def install_auth(app: FastAPI, config: AuthConfig) -> None:
         return same(str(request.session.get("auth", "")), token)
 
     async def guard(request: Request, call_next) -> Response:
-        if request.url.path in PUBLIC_PATHS or signed_in(request):
+        path = request.url.path.rstrip("/") or "/"
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES) or signed_in(request):
             return await call_next(request)
         if request.url.path.startswith("/api/"):
             return JSONResponse({"detail": "not signed in"}, status_code=401)
